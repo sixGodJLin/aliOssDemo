@@ -1,83 +1,115 @@
 package com.jlin.aliossdemo;
 
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.ContentValues;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.ThumbnailUtils;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
+import android.widget.TextView;
+import android.widget.Toast;
 
-import com.alibaba.sdk.android.oss.ClientException;
-import com.alibaba.sdk.android.oss.OSS;
-import com.alibaba.sdk.android.oss.OSSClient;
-import com.alibaba.sdk.android.oss.ServiceException;
-import com.alibaba.sdk.android.oss.callback.OSSCompletedCallback;
-import com.alibaba.sdk.android.oss.callback.OSSProgressCallback;
-import com.alibaba.sdk.android.oss.common.auth.OSSCredentialProvider;
-import com.alibaba.sdk.android.oss.common.auth.OSSStsTokenCredentialProvider;
-import com.alibaba.sdk.android.oss.internal.OSSAsyncTask;
-import com.alibaba.sdk.android.oss.model.PutObjectRequest;
-import com.alibaba.sdk.android.oss.model.PutObjectResult;
-
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 
 public class MainActivity extends AppCompatActivity {
+
+    private static final String TAG = "MainActivity";
+    private ScheduledExecutorService aliOssService;
+    private String picPath;
+
+    private static final int REQUEST_TAKE_PHOTO = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        System.out.println("MainActivity:" + "onCreate" + "====" + getPackageName());
-
-        final String endpoint = "oss-cn-hangzhou.aliyuncs.com";
-        final String startpoint = "oss-token-test";
-        //     明文设置secret的方式建议只在测试时使用，更多鉴权模式请参考后面的`访问控制`章节
-        final OSSCredentialProvider credentialProvider =
-                new OSSStsTokenCredentialProvider("STS.NJYip3ZGFUacEWWvR3pQrby1y",
-                        "Ha9qYmaJkst8BY4j1mCxPLtJFqJNMqPhwFmqhYYFBRCg",
-                        "CAIS5wF1q6Ft5B2yfSjIr4nsIsqHt5hn4qOIR3HmklJmfN5ejbyamzz2IHtLfHhqAuwYs/k3nmhU6/cSlqNyTIQAWUHf" +
-                                "cZMptmO4HpQHJtivgde8yJBZor/HcDHhJnyW9cvWZPqDP7G5U/yxalfCuzZuyL/hD1uLVECkNpv74vwOLK5gPG+CYCFBGc1dKyZ7" +
-                                "tcYeLgGxD/u2NQPwiWeiZygB+CgS0DMis/vm+KDGtEqC1m+d4/QOuoH8LqKja8RRJ5plW7+3prctKfKQinUMtUUXrP0u0PEVqS2iucqG" +
-                                "RkVc+AnDKe3Q/82w42wagAGmRtgcGJS4euwc04GePIie31y4M57jkdhVIj5UnOF40d/bpPrf2uzLfO/vZpbh+lIEJRDZjGXz6Bco7NB+PrF" +
-                                "CFhBv93TzNo4+RjqSCR3Lu0qbV7LdLDZ37GW2KJHH4wEir/E7EG/iRlhe2DRXRhZiJasKGUL1qhwk/CeN5fvY3w==");
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                OSS oss = new OSSClient(getApplicationContext(), endpoint, credentialProvider);
-                //通过填写文件名形成objectname,通过这个名字指定上传和下载的文件
-                // 构造上传请求
-                Date currentTime = new Date();
-                SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmssS");
-                String dateString = formatter.format(currentTime);
-                final String objectname = "ckgi/" + dateString + ".png";
-
-                PutObjectRequest put = new PutObjectRequest(startpoint, objectname, Environment.getExternalStorageDirectory().getPath() + "/123456.JPG");
-                // 异步上传时可以设置进度回调
-                put.setProgressCallback(new OSSProgressCallback<PutObjectRequest>() {
-                    @Override
-                    public void onProgress(PutObjectRequest request, long currentSize, long totalSize) {
-                        System.out.println("MainActivity:" + "onProgress" + "====");
-                    }
-                });
-                OSSAsyncTask task = oss.asyncPutObject(put, new OSSCompletedCallback<PutObjectRequest, PutObjectResult>() {
-                    @Override
-                    public void onSuccess(PutObjectRequest request, PutObjectResult result) {
-                        System.out.println("MainActivity:" + "onSuccess" + "====" + request.getUploadFilePath());
-                    }
-
-                    @Override
-                    public void onFailure(PutObjectRequest request, ClientException clientExcepion, ServiceException serviceException) {
-                        // 请求异常
-                        if (clientExcepion != null) {
-                            // 本地异常如网络异常等
-                            clientExcepion.printStackTrace();
-                        }
-                        if (serviceException != null) {
-                        }
-                        System.out.println("MainActivity:" + "onFailure" + "====" + serviceException.toString());
-                    }
-                });
+        TextView tvUpdate = findViewById(R.id.tv_update);
+        tvUpdate.setOnClickListener(v -> {
+            picPath = Environment.getExternalStorageDirectory().getPath() + File.separator + FileUtils.getPhotoFileName() + ".jpg";
+            //Android7.0文件保存方式改变了
+            Intent openCameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            if (Build.VERSION.SDK_INT < 24) {
+                Uri picUri = Uri.fromFile(new File(picPath));
+                openCameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, picUri);//将原图的uri传入
+                startActivityForResult(openCameraIntent, REQUEST_TAKE_PHOTO);
+            } else {
+                ContentValues contentValues = new ContentValues(1);
+                contentValues.put(MediaStore.Images.Media.DATA, picPath);
+                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+                openCameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+                startActivityForResult(openCameraIntent, REQUEST_TAKE_PHOTO);
             }
-        }).start();
+        });
+
+
+        AliOssUtils.getInstance().init(getApplicationContext(), new CommonCallBack() {
+            @Override
+            public void success() {
+
+                if (aliOssService == null) {
+                    aliOssService = new ScheduledThreadPoolExecutor(1);
+                }
+                aliOssService.scheduleAtFixedRate(() -> {
+                    AliOssUtils.getInstance().init(getApplicationContext());
+                }, 50, 50, TimeUnit.MINUTES);
+            }
+
+            @Override
+            public void fail(String message) {
+                Toast.makeText(getApplicationContext(), "初始化失败: " + message, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_TAKE_PHOTO) {
+            if (resultCode == Activity.RESULT_OK) {
+                Bitmap bitmap = BitmapFactory.decodeFile(picPath);
+                Bitmap compressBitmap = ThumbnailUtils.extractThumbnail(bitmap, 600, 800);
+                String imgAddress = FileUtils.saveMyBitmap(compressBitmap, getTime());
+                AliOssUtils.getInstance().updateFile(imgAddress, new AliOssUtils.UploadListener() {
+                    @Override
+                    public void success(List<String> urls) {
+                        Log.d(TAG, "----> aliOss 地址: " + urls.get(0));
+                    }
+
+                    @Override
+                    public void fail(int index) {
+
+                    }
+                });
+                FileUtils.deleteFile(picPath);
+            } else if (resultCode == RESULT_CANCELED) {
+                FileUtils.deleteFile(picPath);
+            }
+        }
+    }
+
+    /**
+     * 得到当时时间年月日
+     */
+    @SuppressLint("SimpleDateFormat")
+    public static String getTime() {
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyyMMddHHmmss");
+        return simpleDateFormat.format(new Date());
+    }
+
+
 }
